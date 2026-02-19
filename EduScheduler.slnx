@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/EduScheduler.Api/EduScheduler.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/EduScheduler.Tests/EduScheduler.Tests.csproj" />
+  </Folder>
+</Solution>
