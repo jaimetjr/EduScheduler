@@ -28,6 +28,7 @@ public class GraphSyncService : IGraphSyncService
 
         try
         {
+            var graphUsers = new List<User>();
             var usersResponse = await _graphClient.Users.GetAsync(config =>
             {
                 config.QueryParameters.Select = new[]
@@ -43,8 +44,6 @@ public class GraphSyncService : IGraphSyncService
                 return;
             }
 
-            var graphUsers = new List<User>(usersResponse.Value);
-
             var pageIterator = PageIterator<User, UserCollectionResponse>
                 .CreatePageIterator(
                     _graphClient,
@@ -59,42 +58,58 @@ public class GraphSyncService : IGraphSyncService
 
             _logger.LogInformation("Fetched {Count} users from Graph.", graphUsers.Count);
 
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var uniqueUsers = graphUsers
+                .Where(u => !string.IsNullOrEmpty(u.Id))
+                .GroupBy(u => u.Id)
+                .Select(g => g.First())
+                .ToList();
 
-            foreach (var graphUser in graphUsers)
+            _logger.LogInformation("Processing {Count} unique users.", uniqueUsers.Count);
+
+            const int batchSize = 500;
+            for (int i = 0; i < uniqueUsers.Count; i += batchSize)
             {
-                if (string.IsNullOrEmpty(graphUser.Id)) continue;
+                using var scope = _scopeFactory.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-                var email = graphUser.Mail ?? graphUser.UserPrincipalName ?? string.Empty;
+                var batch = uniqueUsers.Skip(i).Take(batchSize).ToList();
+                var batchGraphIds = batch.Select(u => u.Id!).ToList();
 
-                var existing = await context.Students
-                    .FirstOrDefaultAsync(s => s.GraphId == graphUser.Id, cancellationToken);
+                var existingStudents = await context.Students
+                    .Where(s => batchGraphIds.Contains(s.GraphId))
+                    .ToDictionaryAsync(s => s.GraphId, cancellationToken);
 
-                if (existing != null)
+                foreach (var graphUser in batch)
                 {
-                    existing.DisplayName = graphUser.DisplayName ?? existing.DisplayName;
-                    existing.Email = email;
-                    existing.Department = graphUser.Department;
-                    existing.JobTitle = graphUser.JobTitle;
-                    existing.SyncedAt = DateTime.UtcNow;
-                }
-                else
-                {
-                    context.Students.Add(new Student
+                    var email = graphUser.Mail ?? graphUser.UserPrincipalName ?? string.Empty;
+
+                    if (existingStudents.TryGetValue(graphUser.Id!, out var existing))
                     {
-                        GraphId = graphUser.Id,
-                        DisplayName = graphUser.DisplayName ?? "Unknown",
-                        Email = email,
-                        Department = graphUser.Department,
-                        JobTitle = graphUser.JobTitle,
-                        SyncedAt = DateTime.UtcNow
-                    });
+                        existing.DisplayName = graphUser.DisplayName ?? existing.DisplayName;
+                        existing.Email = email;
+                        existing.Department = graphUser.Department;
+                        existing.JobTitle = graphUser.JobTitle;
+                        existing.SyncedAt = DateTime.UtcNow;
+                    }
+                    else
+                    {
+                        context.Students.Add(new Student
+                        {
+                            GraphId = graphUser.Id!,
+                            DisplayName = graphUser.DisplayName ?? "Unknown",
+                            Email = email,
+                            Department = graphUser.Department,
+                            JobTitle = graphUser.JobTitle,
+                            SyncedAt = DateTime.UtcNow
+                        });
+                    }
                 }
+
+                await context.SaveChangesAsync(cancellationToken);
+                _logger.LogInformation("Processed batch {Batch}/{Total}.", i + batch.Count, uniqueUsers.Count);
             }
 
-            await context.SaveChangesAsync(cancellationToken);
-            _logger.LogInformation("User sync completed. {Count} users processed.", graphUsers.Count);
+            _logger.LogInformation("User sync completed. {Count} users processed.", uniqueUsers.Count);
         }
         catch (Exception ex)
         {
