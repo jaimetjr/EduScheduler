@@ -1,0 +1,157 @@
+# EduScheduler
+
+Full-stack application that syncs and displays student schedules from a Microsoft 365 educational institution using Microsoft Graph API.
+
+## Architecture
+```
+Frontend (React + Vite + TS + Tailwind)
+  ↕ REST API + JWT
+Backend (.NET 10 Web API)
+  ↕ Entity Framework Core
+SQLite Database
+  ↑ Hangfire Background Sync
+Microsoft Graph API
+```
+
+### Backend Design
+
+- **Clean Architecture**: Controllers → Services → Data (EF Core)
+- **SOLID Principles**: Interface-based DI, single-responsibility services
+- **Periodic Sync**: Hangfire recurring job fetches users & events from Microsoft Graph and upserts into local SQLite database
+- **Security**: JWT Bearer authentication, only essential data exposed via DTOs
+- **Batch Processing**: Users synced in batches of 500 with deduplication to handle high volume (253k+ users)
+
+### Frontend Design
+
+- **React Query**: Server state management with caching and automatic refetching
+- **Debounced Search**: 300ms debounce on student search to minimize API calls
+- **Protected Routes**: JWT-based route protection with automatic redirect
+- **Responsive Layout**: Split panel on desktop, stacked on mobile
+
+## Resources Implemented
+
+### Backend (API)
+- **JWT Authentication** — Register/Login endpoints with BCrypt password hashing
+- **Student List** — Paginated, searchable endpoint (`GET /api/students?search=&page=&pageSize=`)
+- **Student Detail** — Get student by ID (`GET /api/students/{id}`)
+- **Student Events** — Paginated events per student (`GET /api/students/{id}/events`)
+- **Microsoft Graph Sync** — Background service that periodically fetches users and calendar events
+- **Manual Sync Trigger** — `POST /api/sync/trigger`
+- **Hangfire Dashboard** — Monitor background jobs at `/hangfire` (dev mode)
+- **API Documentation** — Scalar API docs at `/scalar/v1`
+
+### Frontend
+- Login and Register pages
+- Student list with debounced search and pagination
+- Event list per student with pagination
+- Responsive split-panel layout
+- Protected routes with JWT
+
+## Prerequisites
+
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
+- [Node.js 24+](https://nodejs.org/)
+
+## How to Run the Project
+
+### Backend
+```bash
+# From the project root
+cd src/EduScheduler.Api
+
+# Restore dependencies
+dotnet restore
+
+# Apply database migrations
+dotnet ef database update
+
+# Run the API
+dotnet run
+```
+
+The API will be available at:
+- **API**: https://localhost:7186/api
+- **Scalar Docs**: https://localhost:7186//scalar/v1
+- **Hangfire Dashboard**: https://localhost:7186/hangfire
+
+### Frontend
+```bash
+# From the project root
+cd src/eduschedule-web
+
+# Install dependencies
+npm install
+
+# Start dev server
+npm run dev
+```
+
+The frontend will be available at http://localhost:5173
+
+### Quick Start
+
+1. Start the backend API
+2. Register a user via the frontend or `POST /api/auth/register`
+3. The Hangfire job will automatically sync Microsoft Graph data every 30 minutes
+4. Use `POST /api/sync/trigger` to manually trigger a sync
+5. Browse students and their events in the frontend
+
+## How to Run the Tests
+```bash
+# From the project root
+dotnet test
+
+# With verbose output
+dotnet test --verbosity normal
+```
+
+## Project Structure
+```
+EduScheduler/
+├── EduScheduler.sln
+├── README.md
+├── src/
+│   ├── EduScheduler.Api/          # .NET Backend
+│   │   ├── Controllers/           # API endpoints
+│   │   ├── Data/                  # EF Core DbContext
+│   │   ├── Jobs/                  # Hangfire background jobs
+│   │   ├── Models/
+│   │   │   ├── Entities/          # Database entities
+│   │   │   └── DTOs/              # Data transfer objects
+│   │   ├── Services/              # Business logic
+│   │   └── Program.cs             # App configuration
+│   └── eduschedule-web/           # React Frontend
+│       └── src/
+│           ├── api/               # Axios client
+│           ├── components/        # Reusable UI components
+│           ├── hooks/             # Custom React hooks
+│           ├── pages/             # Page components
+│           └── types/             # TypeScript interfaces
+└── tests/
+    └── EduScheduler.Tests/        # xUnit unit tests
+```
+
+## API Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|---------|------|-------------|
+| POST | `/api/auth/register` | No | Register a new user |
+| POST | `/api/auth/login` | No | Login and get JWT token |
+| GET | `/api/students` | Yes | List students (paginated, searchable) |
+| GET | `/api/students/{id}` | Yes | Get student details |
+| GET | `/api/students/{id}/events` | Yes | Get student events (paginated) |
+| POST | `/api/sync/trigger` | Yes | Manually trigger Graph sync |
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Backend | .NET, ASP.NET Core Web API |
+| Database | SQLite + Entity Framework Core |
+| Auth | JWT Bearer + BCrypt |
+| Background Jobs | Hangfire |
+| API Docs | Scalar (OpenAPI) |
+| Frontend | React + Vite + TypeScript + Tailwind CSS |
+| State Management | TanStack Query (React Query) |
+| HTTP Client | Axios |
+| Tests | xUnit + Moq (backend) |
